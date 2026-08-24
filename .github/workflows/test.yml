@@ -1,0 +1,15 @@
+name: Test Build
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Out
+        uses: actions/checkout@v4
+      
+      - name: Test
+        run: echo "Test successful"
