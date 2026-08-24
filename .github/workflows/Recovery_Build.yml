@@ -172,6 +172,22 @@ jobs:
           lunch ${{ github.event.inputs.MAKEFILE_NAME }}-eng && make clean && mka adbd ${{ github.event.inputs.BUILD_TARGET }}image -j$(nproc --all)
           ccache -s
 
+      - name: Fix vendor_boot DT Table
+        working-directory: ${{ steps.pwd.outputs.workspace-folder }}/fox_${{ github.event.inputs.MANIFEST_BRANCH }}
+        run: |
+          VENDOR_BOOT="out/target/product/${{ github.event.inputs.DEVICE_NAME }}/vendor_boot.img"
+          DTB_FILE="${{ github.event.inputs.DEVICE_PATH }}/prebuilt/dtb.img"
+          
+          if [ -f "$VENDOR_BOOT" ] && [ -f "$DTB_FILE" ]; then
+            echo "Fixing vendor_boot DT Table..."
+            python3 ${{ github.event.inputs.DEVICE_PATH }}/fix_vendor_boot.py "$VENDOR_BOOT" "$VENDOR_BOOT" "$DTB_FILE"
+            echo "✓ vendor_boot fixed"
+          else
+            echo "⚠ Skipping fix: files not found"
+            ls -la "$VENDOR_BOOT" 2>/dev/null || echo "  vendor_boot.img not found"
+            ls -la "$DTB_FILE" 2>/dev/null || echo "  dtb.img not found"
+          fi
+
       - name: Save ccache to R2
         if: always()
         continue-on-error: true
