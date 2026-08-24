@@ -1,6 +1,8 @@
 name: Recovery_Build
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       SYNC_URL:
