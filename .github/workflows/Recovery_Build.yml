@@ -128,7 +128,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ steps.pwd.outputs.workspace-folder }}/fox_${{ github.event.inputs.MANIFEST_BRANCH }}
-          key: fox-source-${{ github.event.inputs.MANIFEST_BRANCH }}
+          key: fox-source-${{ github.event.inputs.MANIFEST_BRANCH }}-v2-${{ github.run_id }}
 
       - name: Sync OrangeFox sources and minimal manifest
         working-directory: ${{ steps.pwd.outputs.workspace-folder }}
