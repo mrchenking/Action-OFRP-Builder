@@ -157,9 +157,7 @@ EOF
       working-directory: ${{ steps.pwd.outputs.workspace-folder }}
 
     - name: Clone common tree
-      if: |
-        github.event.inputs.COMMON_TREE_URL != null
-        && github.event.inputs.COMMON_PATH != null
+      if: github.event.inputs.COMMON_TREE_URL != null && github.event.inputs.COMMON_PATH != null
       run: |
         cd ${{ steps.pwd.outputs.workspace-folder }}/fox_${{ github.event.inputs.MANIFEST_BRANCH }}
         git clone ${{ github.event.inputs.COMMON_TREE_URL }} -b ${{ github.event.inputs.DEVICE_TREE_BRANCH }} ./${{ github.event.inputs.COMMON_PATH }}
@@ -188,6 +186,7 @@ EOF
 
     - name: Save ccache to R2
       if: always()
+      continue-on-error: true
       run: |
         rclone sync ~/.ccache r2:${{ secrets.R2_BUCKET }}/ccache/${{ github.event.inputs.DEVICE_NAME }} \
           --transfers 8 --checkers 16
