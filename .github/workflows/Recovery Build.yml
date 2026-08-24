@@ -180,6 +180,7 @@ jobs:
 
     - name: Save ccache to R2
       if: always()
+      continue-on-error: true
       run: |
         rclone sync ~/.ccache r2:${{ secrets.R2_BUCKET }}/ccache/${{ github.event.inputs.DEVICE_NAME }} \
           --transfers 8 --checkers 16
