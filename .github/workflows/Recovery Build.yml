@@ -192,6 +192,19 @@ jobs:
         echo
         ls -al ${{ steps.pwd.outputs.workspace-folder }}/fox_${{ github.event.inputs.MANIFEST_BRANCH }}/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/
 
+
+    - name: Fix vendor_boot DT Table
+      run: |
+        echo "Fixing vendor_boot DT Table..."
+        cd ${{ steps.pwd.outputs.workspace-folder }}/fox_${{ github.event.inputs.MANIFEST_BRANCH }}
+        python3 ${{ github.event.inputs.DEVICE_PATH }}/fix_vendor_boot.py \
+          out/target/product/${{ github.event.inputs.DEVICE_NAME }}/vendor_boot.img \
+          out/target/product/${{ github.event.inputs.DEVICE_NAME }}/vendor_boot_fixed.img \
+          ${{ github.event.inputs.DEVICE_PATH }}/prebuilt/dtb.img
+        mv out/target/product/${{ github.event.inputs.DEVICE_NAME }}/vendor_boot_fixed.img \
+           out/target/product/${{ github.event.inputs.DEVICE_NAME }}/vendor_boot.img
+        echo "✓ vendor_boot fixed"
+
     - name: Upload to Release
       uses: softprops/action-gh-release@v2
       with:
