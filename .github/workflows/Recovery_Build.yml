@@ -7,42 +7,56 @@ on:
     inputs:
       SYNC_URL:
         description: 'SYNC_URL'
-        required: true
+        required: false
         default: 'https://gitlab.com/OrangeFox/sync.git'
       MANIFEST_BRANCH:
         description: 'MANIFEST_BRANCH'
-        required: true
+        required: false
         default: '12.1'
       DEVICE_TREE_URL:
         description: 'DEVICE_TREE_URL'
-        required: true
+        required: false
         default: 'https://github.com/mrchenking/android_device_oplus_qqcandy_twrp'
       DEVICE_TREE_BRANCH:
         description: 'DEVICE_TREE_BRANCH'
-        required: true
+        required: false
         default: 'main'
       DEVICE_PATH:
         description: 'DEVICE_PATH'
-        required: true
+        required: false
         default: 'device/oplus/qqcandy'
       COMMON_TREE_URL:
-        description: 'COMMON_TREE_URL (if no common tree, leave blank)'
+        description: 'COMMON_TREE_URL (leave blank if none)'
         required: false
+        default: ''
       COMMON_PATH:
-        description: 'COMMON_PATH (if no common tree, leave blank)'
+        description: 'COMMON_PATH (leave blank if none)'
         required: false
+        default: ''
       DEVICE_NAME:
         description: 'DEVICE_NAME'
-        required: true
+        required: false
         default: 'qqcandy'
       MAKEFILE_NAME:
         description: 'MAKEFILE_NAME'
-        required: true
+        required: false
         default: 'twrp_qqcandy'
       BUILD_TARGET:
         description: 'BUILD_TARGET'
-        required: true
+        required: false
         default: 'vendorboot'
+
+env:
+  SYNC_URL: ${{ github.event.inputs.SYNC_URL || 'https://gitlab.com/OrangeFox/sync.git' }}
+  MANIFEST_BRANCH: ${{ github.event.inputs.MANIFEST_BRANCH || '12.1' }}
+  DEVICE_TREE_URL: ${{ github.event.inputs.DEVICE_TREE_URL || 'https://github.com/mrchenking/android_device_oplus_qqcandy_twrp' }}
+  DEVICE_TREE_BRANCH: ${{ github.event.inputs.DEVICE_TREE_BRANCH || 'main' }}
+  DEVICE_PATH: ${{ github.event.inputs.DEVICE_PATH || 'device/oplus/qqcandy' }}
+  COMMON_TREE_URL: ${{ github.event.inputs.COMMON_TREE_URL || '' }}
+  COMMON_PATH: ${{ github.event.inputs.COMMON_PATH || '' }}
+  DEVICE_NAME: ${{ github.event.inputs.DEVICE_NAME || 'qqcandy' }}
+  MAKEFILE_NAME: ${{ github.event.inputs.MAKEFILE_NAME || 'twrp_qqcandy' }}
+  BUILD_TARGET: ${{ github.event.inputs.BUILD_TARGET || 'vendorboot' }}
 
 jobs:
   build:
@@ -79,7 +93,7 @@ jobs:
           java-version: '11'
 
       - name: Setup SSH Keys
-        if: startsWith(github.event.inputs.SYNC_URL, 'git@github.com') || startsWith(github.event.inputs.DEVICE_TREE_URL, 'git@github.com') || startsWith(github.event.inputs.COMMON_TREE_URL, 'git@github.com')
+        if: startsWith(env.SYNC_URL, 'git@github.com') || startsWith(env.DEVICE_TREE_URL, 'git@github.com') || startsWith(env.COMMON_TREE_URL, 'git@github.com')
         uses: webfactory/ssh-agent@v0.9.0
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
@@ -105,21 +119,26 @@ jobs:
           sudo bash setup/install_android_sdk.sh
 
       - name: Configure rclone for R2
+        continue-on-error: true
         run: |
           mkdir -p ~/.config/rclone
-          echo "[r2]" > ~/.config/rclone/rclone.conf
-          echo "type = s3" >> ~/.config/rclone/rclone.conf
-          echo "provider = Cloudflare" >> ~/.config/rclone/rclone.conf
-          echo "access_key_id = ${{ secrets.R2_ACCESS_KEY }}" >> ~/.config/rclone/rclone.conf
-          echo "secret_access_key = ${{ secrets.R2_SECRET_KEY }}" >> ~/.config/rclone/rclone.conf
-          echo "endpoint = ${{ secrets.R2_ENDPOINT }}" >> ~/.config/rclone/rclone.conf
+          cat > ~/.config/rclone/rclone.conf << RCEOF
+          [r2]
+          type = s3
+          provider = Cloudflare
+          access_key_id = ${{ secrets.R2_ACCESS_KEY }}
+          secret_access_key = ${{ secrets.R2_SECRET_KEY }}
+          endpoint = ${{ secrets.R2_ENDPOINT }}
+          RCEOF
 
       - name: Restore ccache from R2
         continue-on-error: true
         run: |
           mkdir -p ~/.ccache
-          rclone sync r2:${{ secrets.R2_BUCKET }}/ccache/${{ github.event.inputs.DEVICE_NAME }} ~/.ccache \
-            --transfers 8 --checkers 16 || echo "No existing ccache found, starting fresh"
+          if [ -n "${{ secrets.R2_BUCKET }}" ]; then
+            rclone sync r2:${{ secrets.R2_BUCKET }}/ccache/${{ env.DEVICE_NAME }} ~/.ccache \
+              --transfers 8 --checkers 16 || echo "No ccache found"
+          fi
           ccache -M 8G
           ccache -s
 
@@ -127,30 +146,33 @@ jobs:
         id: cache-source
         uses: actions/cache@v4
         with:
-          path: ${{ steps.pwd.outputs.workspace-folder }}/fox_${{ github.event.inputs.MANIFEST_BRANCH }}
-          key: fox-source-${{ github.event.inputs.MANIFEST_BRANCH }}-v2-${{ github.run_id }}
+          path: ${{ steps.pwd.outputs.workspace-folder }}/fox_${{ env.MANIFEST_BRANCH }}
+          key: fox-source-${{ env.MANIFEST_BRANCH }}-v3
 
       - name: Sync OrangeFox sources and minimal manifest
         working-directory: ${{ steps.pwd.outputs.workspace-folder }}
         run: |
-          if [ ! -d "fox_${{ github.event.inputs.MANIFEST_BRANCH }}/.repo" ]; then
-            git clone ${{ github.event.inputs.SYNC_URL }} sync
+          echo "SYNC_URL=$SYNC_URL"
+          echo "MANIFEST_BRANCH=$MANIFEST_BRANCH"
+          if [ ! -d "fox_${MANIFEST_BRANCH}/.repo" ]; then
+            echo "Cloning OrangeFox sync repo..."
+            git clone "$SYNC_URL" sync
             cd sync
-            ./orangefox_sync.sh --branch ${{ github.event.inputs.MANIFEST_BRANCH }} --path ${{ steps.pwd.outputs.workspace-folder }}/fox_${{ github.event.inputs.MANIFEST_BRANCH }}
+            ./orangefox_sync.sh --branch "$MANIFEST_BRANCH" --path "${{ steps.pwd.outputs.workspace-folder }}/fox_${MANIFEST_BRANCH}"
           else
             echo "Cache hit, running incremental sync..."
-            cd fox_${{ github.event.inputs.MANIFEST_BRANCH }}
+            cd "fox_${MANIFEST_BRANCH}"
             repo sync -c --no-clone-bundle --no-tags --optimized-fetch -j$(nproc --all)
           fi
 
       - name: Clone device tree
-        working-directory: ${{ steps.pwd.outputs.workspace-folder }}/fox_${{ github.event.inputs.MANIFEST_BRANCH }}
-        run: git clone ${{ github.event.inputs.DEVICE_TREE_URL }} -b ${{ github.event.inputs.DEVICE_TREE_BRANCH }} ./${{ github.event.inputs.DEVICE_PATH }}
+        working-directory: ${{ steps.pwd.outputs.workspace-folder }}/fox_${{ env.MANIFEST_BRANCH }}
+        run: git clone "$DEVICE_TREE_URL" -b "$DEVICE_TREE_BRANCH" ./"$DEVICE_PATH"
 
       - name: Clone common tree
-        if: github.event.inputs.COMMON_TREE_URL != null && github.event.inputs.COMMON_PATH != null
-        working-directory: ${{ steps.pwd.outputs.workspace-folder }}/fox_${{ github.event.inputs.MANIFEST_BRANCH }}
-        run: git clone ${{ github.event.inputs.COMMON_TREE_URL }} -b ${{ github.event.inputs.DEVICE_TREE_BRANCH }} ./${{ github.event.inputs.COMMON_PATH }}
+        if: env.COMMON_TREE_URL != '' && env.COMMON_PATH != ''
+        working-directory: ${{ steps.pwd.outputs.workspace-folder }}/fox_${{ env.MANIFEST_BRANCH }}
+        run: git clone "$COMMON_TREE_URL" -b "$DEVICE_TREE_BRANCH" ./"$COMMON_PATH"
 
       - name: Set Swap Space
         uses: pierotofy/set-swap-space@master
@@ -159,7 +181,7 @@ jobs:
 
       - name: Building recovery
         continue-on-error: true
-        working-directory: ${{ steps.pwd.outputs.workspace-folder }}/fox_${{ github.event.inputs.MANIFEST_BRANCH }}
+        working-directory: ${{ steps.pwd.outputs.workspace-folder }}/fox_${{ env.MANIFEST_BRANCH }}
         run: |
           export JAVA_HOME=$JAVA_HOME_11_X64
           export PATH=$JAVA_HOME/bin:$PATH
@@ -169,21 +191,20 @@ jobs:
           source build/envsetup.sh
           export ALLOW_MISSING_DEPENDENCIES=true
           set -e
-          lunch ${{ github.event.inputs.MAKEFILE_NAME }}-eng && make clean && mka adbd ${{ github.event.inputs.BUILD_TARGET }}image -j$(nproc --all)
+          lunch "${MAKEFILE_NAME}-eng" && make clean && mka adbd "${BUILD_TARGET}image" -j$(nproc --all)
           ccache -s
 
       - name: Fix vendor_boot DT Table
-        working-directory: ${{ steps.pwd.outputs.workspace-folder }}/fox_${{ github.event.inputs.MANIFEST_BRANCH }}
+        working-directory: ${{ steps.pwd.outputs.workspace-folder }}/fox_${{ env.MANIFEST_BRANCH }}
         run: |
-          VENDOR_BOOT="out/target/product/${{ github.event.inputs.DEVICE_NAME }}/vendor_boot.img"
-          DTB_FILE="${{ github.event.inputs.DEVICE_PATH }}/prebuilt/dtb.img"
-          
+          VENDOR_BOOT="out/target/product/${DEVICE_NAME}/vendor_boot.img"
+          DTB_FILE="${DEVICE_PATH}/prebuilt/dtb.img"
           if [ -f "$VENDOR_BOOT" ] && [ -f "$DTB_FILE" ]; then
             echo "Fixing vendor_boot DT Table..."
-            python3 ${{ github.event.inputs.DEVICE_PATH }}/fix_vendor_boot.py "$VENDOR_BOOT" "$VENDOR_BOOT" "$DTB_FILE"
-            echo "✓ vendor_boot fixed"
+            python3 "${DEVICE_PATH}/fix_vendor_boot.py" "$VENDOR_BOOT" "$VENDOR_BOOT" "$DTB_FILE"
+            echo "vendor_boot fixed"
           else
-            echo "⚠ Skipping fix: files not found"
+            echo "Skipping fix: files not found"
             ls -la "$VENDOR_BOOT" 2>/dev/null || echo "  vendor_boot.img not found"
             ls -la "$DTB_FILE" 2>/dev/null || echo "  dtb.img not found"
           fi
@@ -192,27 +213,28 @@ jobs:
         if: always()
         continue-on-error: true
         run: |
-          rclone sync ~/.ccache r2:${{ secrets.R2_BUCKET }}/ccache/${{ github.event.inputs.DEVICE_NAME }} \
-            --transfers 8 --checkers 16
-          echo "ccache saved to R2"
+          if [ -n "${{ secrets.R2_BUCKET }}" ]; then
+            rclone sync ~/.ccache "r2:${{ secrets.R2_BUCKET }}/ccache/${DEVICE_NAME}" \
+              --transfers 8 --checkers 16 || true
+          fi
 
       - name: Check the output directory before uploading
         run: |
-          ls -al ${{ steps.pwd.outputs.workspace-folder }}/fox_${{ github.event.inputs.MANIFEST_BRANCH }}/out/target/product/
+          ls -al ${{ steps.pwd.outputs.workspace-folder }}/fox_${{ env.MANIFEST_BRANCH }}/out/target/product/ 2>/dev/null || true
           echo
-          ls -al ${{ steps.pwd.outputs.workspace-folder }}/fox_${{ github.event.inputs.MANIFEST_BRANCH }}/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/
+          ls -al ${{ steps.pwd.outputs.workspace-folder }}/fox_${{ env.MANIFEST_BRANCH }}/out/target/product/${{ env.DEVICE_NAME }}/ 2>/dev/null || true
 
       - name: Upload to Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            ${{ steps.pwd.outputs.workspace-folder }}/fox_${{ github.event.inputs.MANIFEST_BRANCH }}/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/*.img
-            ${{ steps.pwd.outputs.workspace-folder }}/fox_${{ github.event.inputs.MANIFEST_BRANCH }}/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/*.zip
-          name: ${{ github.event.inputs.DEVICE_NAME }}-${{ github.run_id }}
+            ${{ steps.pwd.outputs.workspace-folder }}/fox_${{ env.MANIFEST_BRANCH }}/out/target/product/${{ env.DEVICE_NAME }}/*.img
+            ${{ steps.pwd.outputs.workspace-folder }}/fox_${{ env.MANIFEST_BRANCH }}/out/target/product/${{ env.DEVICE_NAME }}/*.zip
+          name: ${{ env.DEVICE_NAME }}-${{ github.run_id }}
           tag_name: ${{ github.run_id }}
           body: |
-            Manifest: ${{ github.event.inputs.MANIFEST_BRANCH }}
-            Device: ${{ github.event.inputs.DEVICE_NAME }}
-            Target: ${{ github.event.inputs.BUILD_TARGET }}
+            Manifest: ${{ env.MANIFEST_BRANCH }}
+            Device: ${{ env.DEVICE_NAME }}
+            Target: ${{ env.BUILD_TARGET }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
